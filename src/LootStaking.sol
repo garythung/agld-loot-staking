@@ -1,28 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.10;
 
-import "abdk-libraries-solidity/ABDKMathQuad.sol";
+import "./lib/Math.sol";
+
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
+import "solmate/utils/SafeTransferLib.sol";
 import {ERC20 as SolmateERC20} from "solmate/tokens/ERC20.sol";
 import {ERC721 as SolmateERC721} from "solmate/tokens/ERC721.sol";
 
-library Math {
-  // Source: https://medium.com/coinmonks/math-in-solidity-part-3-percents-and-proportions-4db014e080b1
-  // Calculates x * y / z. Useful for doing percentages like Amount * Percent numerator / Percent denominator
-  // Example: Calculate 1.25% of 100 ETH (aka 125 basis points): mulDiv(100e18, 125, 10000)
-  function mulDiv(uint256 x, uint256 y, uint256 z) internal pure returns (uint256) {
-    return ABDKMathQuad.toUInt(
-      ABDKMathQuad.div(
-        ABDKMathQuad.mul(
-          ABDKMathQuad.fromUInt(x),
-          ABDKMathQuad.fromUInt(y)
-        ),
-        ABDKMathQuad.fromUInt(z)
-      )
-    );
-  }
-}
 
 contract LootStaking is Ownable {
     using SafeTransferLib for SolmateERC20;
@@ -54,9 +39,9 @@ contract LootStaking is Ownable {
     /*///////////////////////////////////////////////////////////////
                              CONSTANTS
     // //////////////////////////////////////////////////////////////*/
-    SolmateERC20 public constant AGLD = SolmateERC20(0xf02b847FF664072c0241AA8dB32998Bbc51Bd984);
-    SolmateERC721 public constant LOOT = SolmateERC721(0x84E3547f63ad6E5A1c4FE82594977525C764F0E8);
-    SolmateERC721 public constant MLOOT = SolmateERC721(0xD991EafE6b2D36F786365e0cEB3b6Dbe61097c90);
+    SolmateERC721 public LOOT;
+    SolmateERC721 public MLOOT;
+    SolmateERC20 public AGLD;
 
     /*///////////////////////////////////////////////////////////////
                              STORAGE
@@ -95,8 +80,14 @@ contract LootStaking is Ownable {
         uint256 _numEpochs,
         uint256 _epochDuration,
         uint256 _lootWeight,
-        uint256 _mLootWeight
+        uint256 _mLootWeight,
+        address lootAddress,
+        address mLootAddress,
+        address agldAddress
     ) {
+        LOOT = SolmateERC721(lootAddress);
+        MLOOT = SolmateERC721(mLootAddress);
+        AGLD = SolmateERC20(agldAddress);
         numEpochs = _numEpochs;
         epochDuration = _epochDuration;
 
@@ -204,12 +195,18 @@ contract LootStaking is Ownable {
             if (_nftToken.ownerOf(bagId) != msg.sender) revert NotBagOwner();
             if (stakedNFTsByEpoch[signalEpoch][bagId]) revert BagAlreadyStaked();
 
+            // Increment staked count for epoch.
             // Loot cannot overflow.
             // mLoot unlikely to reach overflow limit.
             unchecked {
                 ++numNFTsStakedByEpoch[signalEpoch];
             }
+
+            // Mark NFT as staked for this epoch.
             stakedNFTsByEpoch[signalEpoch][bagId] = true;
+
+            // Record epoch for this loot.
+            epochsByLootId[bagId].push(signalEpoch);
 
             unchecked { ++i; }
         }
@@ -314,8 +311,8 @@ contract LootStaking is Ownable {
     ///      epoch.
     /// @param _id The bag to calculate rewards for.
     /// @return rewards Claimable rewards for the bag.
-    function getRewardsForLootBag(uint256 _id) external view returns (uint256 rewards) {
-        rewards = _getRewardsForEpochs(lootWeightsByEpoch, epochsByLootId[_id], numLootStakedByEpoch);
+    function getClaimableRewardsForLootBag(uint256 _id) external view returns (uint256 rewards) {
+        rewards = _getClaimableRewardsForEpochs(lootWeightsByEpoch, epochsByLootId[_id], numLootStakedByEpoch);
     }
 
     /// @notice Calculates the currently claimable rewards for a Loot bag.
@@ -323,33 +320,32 @@ contract LootStaking is Ownable {
     ///      epoch.
     /// @param _id The bag to calculate rewards for.
     /// @return rewards Claimable rewards for the bag.
-    function getRewardsForMLootBag(uint256 _id) external view returns (uint256 rewards) {
-        rewards = _getRewardsForEpochs(mLootWeightsByEpoch, epochsByMLootId[_id], numMLootStakedByEpoch);
+    function getClaimableRewardsForMLootBag(uint256 _id) external view returns (uint256 rewards) {
+        rewards = _getClaimableRewardsForEpochs(mLootWeightsByEpoch, epochsByMLootId[_id], numMLootStakedByEpoch);
     }
 
     /// @notice Calculates the currently claimable rewards for a bag that was
-    ///         staked in a list of epochs.
+    ///         staked in a list of epochs. Excludes the current epoch.
     /// @param _nftWeights The list of NFT reward weights.
     /// @param _epochs The epochs the bag was staked in.
-    function _getRewardsForEpochs(
+    function _getClaimableRewardsForEpochs(
         mapping(uint256 => uint256) storage _nftWeights,
         uint256[] memory _epochs,
         mapping(uint256 => uint256) storage numNFTsStakedByEpoch
     ) internal view returns (uint256 rewards) {
         uint256 rewardPerEpoch = getTotalRewardPerEpoch();
         uint256 currentEpoch = getCurrentEpoch();
-
         uint256 epochsLength = _epochs.length;
         uint256 epoch;
-        for (uint256 j = 0; j < epochsLength;) {
-            epoch = _epochs[j];
+        for (uint256 i = 0; i < epochsLength;) {
+            epoch = _epochs[i];
             if (epoch != currentEpoch) {
                 unchecked {
                     rewards += Math.mulDiv(rewardPerEpoch, _nftWeights[epoch], 10000) / numNFTsStakedByEpoch[epoch];
                 }
             }
 
-            unchecked { ++j; }
+            unchecked { ++i; }
         }
     }
 }

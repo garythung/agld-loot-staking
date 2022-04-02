@@ -6,6 +6,8 @@ import MLootArtifact from "../out/MLoot.sol/TemporalLoot.json" assert { type: "j
 import LootArtifact from "../out/Loot.sol/Loot.json" assert { type: "json" };
 import LootStakingArtifact from "../out/LootStaking.sol/LootStaking.json" assert { type: "json" };
 
+import DEPLOYMENTS from "../deployments.json" assert { type: "json" };
+
 const deployLoot = async () => {
   const Factory = new ethers.ContractFactory(
     LootArtifact.abi,
@@ -79,7 +81,15 @@ const deployStaking = async () => {
     name: "LootStaking",
     deployer: wallet,
     factory: Factory,
-    args: [288, 600, 9975, 25],
+    args: [
+      288,
+      600,
+      9975,
+      25,
+      DEPLOYMENTS.rinkeby.loot,
+      DEPLOYMENTS.rinkeby.mLoot,
+      DEPLOYMENTS.rinkeby.AGLD,
+    ],
     opts: {
       gasLimit: 1000000,
     },
@@ -99,21 +109,32 @@ const initializeStaking = async (stakingAddr) => {
   );
 
   // send AGLD
-  // await agld.transfer(stakingAddr, ethers.utils.parseUnits("100000", 18));
+  await agld.transfer(stakingAddr, ethers.utils.parseUnits("100000", 18));
+  console.log("Sent 100000 AGLD to staking contract");
 
   // notify AGLD received
-  // await staking.notifyRewardAmount(ethers.utils.parseUnits("100000", 18));
+  await staking.notifyRewardAmount(ethers.utils.parseUnits("100000", 18));
+  console.log("Notified 100000 AGLD reward");
 
   // set staking start
-  await staking.setStakingStartTime(parseInt(Date.now() / 1000) + 750);
+  const startTimeUnixSeconds = parseInt(Date.now() / 1000) + 900;
+  await staking.setStakingStartTime(startTimeUnixSeconds, {
+    gasLimit: 1000000,
+  });
+  console.log(
+    `Set staking start time to ${new Date(
+      startTimeUnixSeconds * 1000
+    ).toString()}`
+  );
 };
 
 const main = async () => {
   // const loot = await deployLoot();
   // const mLoot = await deployMLoot();
   // const agld = await deployAGLD();
-  // const staking = await deployStaking();
-  await initializeStaking("0xbc9d385e665c8ccf02b6ba71b447f1594e5a9fb7");
+  const staking = await deployStaking();
+  await initializeStaking(staking.address);
+  // await initializeStaking("0x3380B98Da3Ca8515994BB3A279d60C554F11dD17");
 };
 
 main()

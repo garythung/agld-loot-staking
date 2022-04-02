@@ -3,3 +3,4 @@ cache/
 out/
 .env
 node_modules/
+artifacts/

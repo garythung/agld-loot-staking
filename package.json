@@ -1,6 +1,9 @@
 {
   "type": "module",
   "dependencies": {
+    "@openzeppelin/contracts": "^4.5.0",
+    "@rari-capital/solmate": "^6.2.0",
+    "abdk-libraries-solidity": "^3.0.0",
     "chalk": "^5.0.1",
     "dotenv": "^16.0.0",
     "ethers": "^5.6.1",
@@ -8,7 +11,9 @@
     "readline": "^1.3.0"
   },
   "devDependencies": {
-    "eslint": "^8.11.0"
+    "@nomiclabs/hardhat-etherscan": "^3.0.3",
+    "eslint": "^8.11.0",
+    "hardhat": "^2.9.2"
   },
   "eslintConfig": {
     "extends": "eslint:recommended",

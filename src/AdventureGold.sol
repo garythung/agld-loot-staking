@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20 as OZERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/Context.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/IERC721Enumerable.sol";
@@ -15,7 +15,7 @@ import "@openzeppelin/contracts/token/ERC721/extensions/IERC721Enumerable.sol";
 /// * A DAO to set seasons for new opportunities to claim Adventure Gold
 /// * A DAO to mint Adventure Gold for use within the Loot ecosystem
 /// @custom:unaudited This contract has not been audited. Use at your own risk.
-contract AdventureGold is Context, Ownable, ERC20 {
+contract AdventureGold is Context, Ownable, OZERC20 {
     // Loot contract is available at https://etherscan.io/address/0xff9c1b15b16263c61d017ee9f65c50e4ae0113d7
     address public lootContractAddress =
         0xa324e0d0bEc55840BDbcCd760f7a998Df859386c;
@@ -51,11 +51,11 @@ contract AdventureGold is Context, Ownable, ERC20 {
     // claimedForSeason[season][tokenId][claimed]
     mapping(uint256 => mapping(uint256 => bool)) public seasonClaimedByTokenId;
 
-    constructor() Ownable() ERC20("Adventure Gold", "AGLD") {
+    constructor() Ownable() OZERC20("Adventure Gold", "AGLD") {
         // Transfer ownership to the Loot DAO
         // Ownable by OpenZeppelin automatically sets owner to msg.sender, but
         // we're going to be using a separate wallet for deployment
-        transferOwnership(0xcD814C83198C15A542F9A13FAf84D518d1744ED1);
+        // transferOwnership(0xcD814C83198C15A542F9A13FAf84D518d1744ED1); // NOTE: removed for local testing
         lootContract = IERC721Enumerable(lootContractAddress);
     }
 
