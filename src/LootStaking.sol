@@ -3,11 +3,10 @@ pragma solidity ^0.8.10;
 
 import "./lib/Math.sol";
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "solmate/utils/SafeTransferLib.sol";
 import {ERC20 as SolmateERC20} from "solmate/tokens/ERC20.sol";
 import {ERC721 as SolmateERC721} from "solmate/tokens/ERC721.sol";
-
 
 contract LootStaking is Ownable {
     using SafeTransferLib for SolmateERC20;
@@ -171,7 +170,7 @@ contract LootStaking is Ownable {
         _signalStake(_ids, MLOOT, stakedMLootIdsByEpoch, numMLootStakedByEpoch);
     }
 
-    /// @notice Stakes token ids of a specific collection for the immediate next
+    /// @notice Stakes token IDs of a specific collection for the immediate next
     ///         epoch.
     /// @param _ids NFT token IDs to stake.
     /// @param _nftToken NFT collection being staked.
@@ -282,7 +281,7 @@ contract LootStaking is Ownable {
                              GETTERS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Claims all staking rewards for Loot bags.
+    /// @notice Gets the current epoch staking is in.
     /// @return currentEpoch The current epoch. 0 represents time before the first epoch.
     function getCurrentEpoch() public view returns (uint256 currentEpoch) {
         if (block.timestamp < stakingStartTime) return 0;
@@ -315,7 +314,7 @@ contract LootStaking is Ownable {
         rewards = _getClaimableRewardsForEpochs(lootWeightsByEpoch, epochsByLootId[_id], numLootStakedByEpoch);
     }
 
-    /// @notice Calculates the currently claimable rewards for a Loot bag.
+    /// @notice Calculates the currently claimable rewards for an mLoot bag.
     /// @dev Grab the epochs the bag was staked for and run calculation for each
     ///      epoch.
     /// @param _id The bag to calculate rewards for.
@@ -340,6 +339,7 @@ contract LootStaking is Ownable {
         for (uint256 i = 0; i < epochsLength;) {
             epoch = _epochs[i];
             if (epoch != currentEpoch) {
+                // Proper ERC-20 implementation ensures total supply capped at uint256 max.
                 unchecked {
                     rewards += Math.mulDiv(rewardPerEpoch, _nftWeights[epoch], 10000) / numNFTsStakedByEpoch[epoch];
                 }
@@ -347,5 +347,17 @@ contract LootStaking is Ownable {
 
             unchecked { ++i; }
         }
+    }
+
+    /// @notice Gets the total rewards expected for Loot and mLoot for an epoch.
+    /// @param _epoch The epoch to get the weights for.
+    /// @return lootRewards The reward for Loot bags.
+    /// @return mLootRewards The reward for mLoot bags.
+    function getRewardsForEpoch(
+        uint256 _epoch
+    ) public view returns (uint256 lootRewards, uint256 mLootRewards) {
+        uint256 rewardPerEpoch = getTotalRewardPerEpoch();
+        lootRewards = Math.mulDiv(rewardPerEpoch, lootWeightsByEpoch[_epoch], 10000);
+        mLootRewards = Math.mulDiv(rewardPerEpoch, mLootWeightsByEpoch[_epoch], 10000);
     }
 }
