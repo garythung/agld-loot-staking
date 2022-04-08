@@ -42,13 +42,13 @@ const initializeStaking = async (stakingAddr) => {
   );
 
   // send AGLD
-  await agld.transfer(stakingAddr, ethers.utils.parseUnits("100000", 18), {
+  await agld.transfer(stakingAddr, hre.ethers.utils.parseUnits("100000", 18), {
     gasLimit: 1000000,
   });
   console.log("Sent 100000 AGLD to staking contract");
 
   // notify AGLD received
-  await staking.notifyRewardAmount(ethers.utils.parseUnits("100000", 18), {
+  await staking.notifyRewardAmount(hre.ethers.utils.parseUnits("100000", 18), {
     gasLimit: 1000000,
   });
   console.log("Notified 100000 AGLD reward");
@@ -75,6 +75,8 @@ async function main() {
 
   const staking = await deployStaking();
   await initializeStaking(staking.address);
+  // const staking = await deployStaking();
+  // await initializeStaking("0xCB23cAc357aa3395321cbF90eD0Cf4573a35682A");
 }
 
 // We recommend this pattern to be able to use async/await everywhere
