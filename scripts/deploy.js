@@ -148,10 +148,8 @@ const main = async () => {
   // const loot = await deployLoot();
   // const mLoot = await deployMLoot();
   // const agld = await deployAGLD();
-  // const staking = await deployStaking();
-  // await initializeStaking(staking.address);
-  await testStaking("0xB497C28f659e48dC6D0A7A9b46553594F7f2C052");
-  // await initializeStaking("0x3380B98Da3Ca8515994BB3A279d60C554F11dD17");
+  const staking = await deployStaking();
+  await initializeStaking(staking.address);
 };
 
 main()

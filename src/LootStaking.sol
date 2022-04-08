@@ -7,6 +7,9 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "solmate/utils/SafeTransferLib.sol";
 import {ERC20 as SolmateERC20} from "solmate/tokens/ERC20.sol";
 import {ERC721 as SolmateERC721} from "solmate/tokens/ERC721.sol";
+// import "@rari-capital/solmate/src/utils/SafeTransferLib.sol";
+// import {ERC20 as SolmateERC20} from "@rari-capital/solmate/src/tokens/ERC20.sol";
+// import {ERC721 as SolmateERC721} from "@rari-capital/solmate/src/tokens/ERC721.sol";
 
 contract LootStaking is Ownable {
     using SafeTransferLib for SolmateERC20;
@@ -33,8 +36,8 @@ contract LootStaking is Ownable {
     event RewardsAdded(uint256 indexed _rewards);
     event StakingStarted(uint256 indexed _startTime);
     event WeightsSet(uint256 indexed _lootWeight, uint256 indexed _mLootWeight);
-    event LootBagsStaked(address indexed _owner, uint256[] indexed _bagIds);
-    event MLootBagsStaked(address indexed _owner, uint256[] indexed _bagIds);
+    event LootBagsStaked(address indexed _owner, uint256 indexed _epoch, uint256[] indexed _bagIds);
+    event MLootBagsStaked(address indexed _owner, uint256 indexed _epoch, uint256[] indexed _bagIds);
     event RewardsClaimed(address indexed _owner, uint256 indexed _amount);
 
     /*///////////////////////////////////////////////////////////////
@@ -58,6 +61,7 @@ contract LootStaking is Ownable {
     /// @notice mLoot reward share weight represented as basis points. Epochs are 1-indexed.
     mapping(uint256 => uint256) private mLootWeightsByEpoch;
 
+    // Loot storage vars
 
     /// @notice Loot IDs staked in each epoch. Epochs are 1-indexed.
     mapping(uint256 => mapping(uint256 => bool)) public stakedLootIdsByEpoch;
@@ -66,13 +70,10 @@ contract LootStaking is Ownable {
     ///         are claimed.
     mapping(uint256 => uint256[]) public epochsByLootId;
 
-    /// @notice Number of epochs each Loot is staked in. Values can be
-    ///         incremented or decremented;
-    mapping(uint256 => uint256) public numEpochsByLootId;
-
     /// @notice Number of Loot staked in each epoch. Values are only incremented.
     mapping(uint256 => uint256) public numLootStakedByEpoch;
 
+    // mLoot storage vars
 
     /// @notice mLoot IDs staked in each epoch. Epochs are 1-indexed.
     mapping(uint256 => mapping(uint256 => bool)) public stakedMLootIdsByEpoch;
@@ -80,10 +81,6 @@ contract LootStaking is Ownable {
     /// @notice Track epochs an mLoot is staked in. We remove epochs when
     ///         rewards are claimed.
     mapping(uint256 => uint256[]) public epochsByMLootId;
-
-    /// @notice Number of epochs each mLoot is staked in. Values can be
-    ///         incremented or decremented;
-    mapping(uint256 => uint256) public numEpochsByMLootId;
 
     /// @notice Number of mLoot staked in each epoch. Values are only incremented.
     mapping(uint256 => uint256) public numMLootStakedByEpoch;
@@ -179,15 +176,13 @@ contract LootStaking is Ownable {
     /// @notice Stakes Loot bags for upcoming epoch.
     /// @param _ids Loot bags to stake.
     function signalLootStake(uint256[] calldata _ids) external {
-        _signalStake(_ids, LOOT, epochsByLootId, numEpochsByLootId, stakedLootIdsByEpoch, numLootStakedByEpoch);
-        emit LootBagsStaked(msg.sender, _ids);
+        _signalStake(_ids, LOOT, epochsByLootId, stakedLootIdsByEpoch, numLootStakedByEpoch);
     }
 
     /// @notice Stakes mLoot bags for upcoming epoch.
     /// @param _ids mLoot bags to stake.
     function signalMLootStake(uint256[] calldata _ids) external {
-        _signalStake(_ids, MLOOT, epochsByMLootId, numEpochsByMLootId, stakedMLootIdsByEpoch, numMLootStakedByEpoch);
-        emit MLootBagsStaked(msg.sender, _ids);
+        _signalStake(_ids, MLOOT, epochsByMLootId, stakedMLootIdsByEpoch, numMLootStakedByEpoch);
     }
 
     /// @notice Stakes token IDs of a specific collection for the immediate next
@@ -200,7 +195,6 @@ contract LootStaking is Ownable {
         uint256[] calldata _ids,
         SolmateERC721 _nftToken,
         mapping(uint256 => uint256[]) storage epochsByNFTId,
-        mapping(uint256 => uint256) storage numEpochsByNFTId,
         mapping(uint256 => mapping(uint256 => bool)) storage stakedNFTsByEpoch,
         mapping(uint256 => uint256) storage numNFTsStakedByEpoch
     ) internal {
@@ -228,16 +222,13 @@ contract LootStaking is Ownable {
             // Record epoch for this NFT.
             epochsByNFTId[bagId].push(signalEpoch);
 
-            // Record epoch for this NFT.
-            epochsByNFTId[bagId][numEpochsByNFTId[bagId]] = signalEpoch;
-
-            // Theoretically maxes out at numEpochs.
-            unchecked {
-                // Increment epoch count for this NFT.
-                ++numEpochsByNFTId[bagId];
-            }
-
             unchecked { ++i; }
+        }
+
+        if (_nftToken == LOOT) {
+            emit LootBagsStaked(msg.sender, signalEpoch, _ids);
+        } else {
+            emit MLootBagsStaked(msg.sender, signalEpoch, _ids);
         }
     }
 
@@ -248,13 +239,13 @@ contract LootStaking is Ownable {
     /// @notice Claims all staking rewards for specific Loot bags.
     /// @param _ids Loot bags to claim rewards for.
     function claimLootRewards(uint256[] calldata _ids) external {
-        _claimRewards(_ids, LOOT, lootWeightsByEpoch, numEpochsByLootId, epochsByLootId, numLootStakedByEpoch);
+        _claimRewards(_ids, LOOT, lootWeightsByEpoch, epochsByLootId, numLootStakedByEpoch);
     }
 
     /// @notice Claims all staking rewards for specific mLoot bags.
     /// @param _ids Loot bags to claim rewards for.
     function claimMLootRewards(uint256[] calldata _ids) external {
-        _claimRewards(_ids, MLOOT, mLootWeightsByEpoch, numEpochsByMLootId, epochsByMLootId, numMLootStakedByEpoch);
+        _claimRewards(_ids, MLOOT, mLootWeightsByEpoch, epochsByMLootId, numMLootStakedByEpoch);
     }
 
     /// @notice Claims the rewards for token IDs of a specific collection.
@@ -263,7 +254,6 @@ contract LootStaking is Ownable {
         uint256[] calldata _ids,
         SolmateERC721 nftToken,
         mapping(uint256 => uint256) storage nftWeights,
-        mapping(uint256 => uint256) storage numEpochsByNFTId,
         mapping(uint256 => uint256[]) storage epochsByNFTId,
         mapping(uint256 => uint256) storage numNFTsStakedByEpoch
     ) internal {
@@ -272,33 +262,39 @@ contract LootStaking is Ownable {
         uint256 currentEpoch = getCurrentEpoch();
 
         uint256 length = _ids.length;
+
         uint256 bagId;
+        uint256[] memory epochs;
         uint256 epochsLength;
         uint256 epoch;
         uint256 j;
+
         for (uint256 i = 0; i < length;) {
             bagId = _ids[i];
             if (nftToken.ownerOf(bagId) != msg.sender) revert NotBagOwner();
 
-            epochsLength = epochsByNFTId[bagId].length;
-            for (j = 0; j < epochsLength;) {
-                epoch = epochsByNFTId[bagId][j];
-                if (epoch != currentEpoch) {
-                    // Proper ERC-20 implementation will cap total supply at uint256 max.
-                    unchecked {
-                        rewards += getRewardPerEpochPerBag(rewardPerEpoch, nftWeights[epoch], numNFTsStakedByEpoch[epoch]);
+            epochs = epochsByNFTId[bagId];
+            epochsLength = epochs.length;
+
+            if (epochsLength > 0) {
+                for (j = 0; j < epochsLength;) {
+                    epoch = epochs[j];
+                    if (epoch != currentEpoch) {
+                        // Proper ERC-20 implementation will cap total supply at uint256 max.
+                        unchecked {
+                            rewards += getRewardPerEpochPerBag(rewardPerEpoch, nftWeights[epoch], numNFTsStakedByEpoch[epoch]);
+                        }
                     }
+
+                    unchecked { ++j; }
                 }
 
-                unchecked { ++j; }
-            }
-
-            // Clear epochs that the bag's rewards have been claimed for.
-            if (epochsByNFTId[bagId][epochsLength - 1] == currentEpoch) {
-                epochsByNFTId[bagId][0] = currentEpoch;
-                numEpochsByNFTId[bagId] = 1;
-            } else {
-                numEpochsByNFTId[bagId] = 0;
+                // Clear epochs that the bag's rewards have been claimed for.
+                if (epochs[epochsLength - 1] == currentEpoch) {
+                epochsByNFTId[bagId] = [currentEpoch];
+                } else {
+                    delete epochsByNFTId[bagId];
+                }
             }
 
             unchecked { ++i; }
@@ -403,8 +399,12 @@ contract LootStaking is Ownable {
     /// @param _epochs List of epochs.
     /// @return List of epochs excluding the  current epoch.
     function _filterOutCurrentEpoch(uint256[] memory _epochs) internal view returns (uint256[] memory) {
-        uint256 currentEpoch = getCurrentEpoch();
         uint256 epochsLength = _epochs.length;
+        if (epochsLength == 0) {
+            return _epochs;
+        }
+
+        uint256 currentEpoch = getCurrentEpoch();
         if (_epochs[epochsLength - 1] == currentEpoch) {
             delete _epochs[epochsLength - 1];
         }

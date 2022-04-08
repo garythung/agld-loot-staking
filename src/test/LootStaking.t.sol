@@ -204,7 +204,7 @@ contract LootStakingTest is DSTest, ERC721TokenReceiver {
         assertEq(staking.numLootStakedByEpoch(1), ids.length);
     }
 
-    function test_fuzz_claimLootRewards_BeforeOneEpoch(uint256 _amount) public {
+    function helper_prepareClaiming(uint256 _amount) internal {
         // Basis point calculations fail below 10000 * numEpochs.
         vm.assume(_amount >= 1e4 * staking.numEpochs());
         // Cap fuzzing at AGLD minted.
@@ -215,6 +215,10 @@ contract LootStakingTest is DSTest, ERC721TokenReceiver {
 
         // Remove excess AGLD from the test contract account.
         agld.transfer(HEVM_ADDRESS, agld.balanceOf(address(this)));
+    }
+
+    function test_fuzz_claimLootRewards_BeforeOneEpoch(uint256 _amount) public {
+        helper_prepareClaiming(_amount);
 
         uint256 startTime = block.timestamp + staking.epochDuration();
         setStartTime(startTime);
@@ -222,36 +226,83 @@ contract LootStakingTest is DSTest, ERC721TokenReceiver {
         uint256 num = 5;
         uint256[] memory ids = claimLoot(num);
 
+        // Stake Loot.
         staking.signalLootStake(ids);
+
+        // Fast forward to time before epoch ends.
         vm.warp(startTime + staking.epochDuration() - 1);
+
+        // Claim rewards.
         staking.claimLootRewards(ids);
+
         assertEq(agld.balanceOf(address(this)), 0);
     }
 
     function test_fuzz_claimLootRewards_AfterOneEpoch(uint256 _amount) public {
-        // Basis point calculations fail below 10000 * numEpochs.
-        vm.assume(_amount >= 1e4 * staking.numEpochs());
-        // Cap fuzzing at AGLD minted.
-        vm.assume(_amount <= AGLD_SUPPLY);
+        helper_prepareClaiming(_amount);
 
-        mintAGLD(AGLD_SUPPLY);
-        transferAndNotifyAGLD(_amount);
-
-        // Remove excess AGLD from the test contract account.
-        agld.transfer(HEVM_ADDRESS, agld.balanceOf(address(this)));
-
+        // Start staking.
         uint256 startTime = block.timestamp + staking.epochDuration();
         setStartTime(startTime);
 
+        // Claim Loot.
         uint256 num = 5;
         uint256[] memory ids = claimLoot(num);
 
+        // Stake Loot.
         staking.signalLootStake(ids);
+
+        // Fast foward to after epoch.
         vm.warp(startTime + staking.epochDuration());
+
+        // Claim rewards.
         staking.claimLootRewards(ids);
+
         uint256 rewardPerEpoch = staking.getTotalRewardPerEpoch();
         (uint256 lootWeight,) = staking.getWeightsForEpoch(1);
         uint256 numNFTsStaked = staking.numLootStakedByEpoch(1);
-        assertEq(agld.balanceOf(address(this)), staking.getRewardPerEpochPerBag(rewardPerEpoch, lootWeight, numNFTsStaked) * num);
+        uint256 expectedReward = staking.getRewardPerEpochPerBag(rewardPerEpoch, lootWeight, numNFTsStaked) * num;
+        assertEq(agld.balanceOf(address(this)), expectedReward);
+        assertEq(staking.getClaimableEpochsForLootBag(1).length, 0);
+        assertEq(staking.getClaimableRewardsForLootBag(1), 0);
+
+        // Claiming again shouldn't do anything.
+        staking.claimLootRewards(ids);
+        assertEq(agld.balanceOf(address(this)), expectedReward);
+    }
+
+    function test_fuzz_claimLootRewards_AfterTwoEpochs(uint256 _amount) public {
+        helper_prepareClaiming(_amount);
+
+        // Start staking.
+        uint256 startTime = block.timestamp + staking.epochDuration();
+        setStartTime(startTime);
+
+        // Claim Loot.
+        uint256 num = 5;
+        uint256[] memory ids = claimLoot(num);
+
+        // Stake Loot.
+        staking.signalLootStake(ids);
+
+        // Fast foward to during epoch.
+        vm.warp(startTime + staking.epochDuration() - 1);
+
+        // Stake Loot again.
+        staking.signalLootStake(ids);
+
+        // Fast foward to after 2nd epoch.
+        vm.warp(startTime + 2 * staking.epochDuration());
+
+        // Claim rewards.
+        staking.claimLootRewards(ids);
+
+        uint256 rewardPerEpoch = staking.getTotalRewardPerEpoch();
+        (uint256 lootWeight,) = staking.getWeightsForEpoch(1);
+        uint256 numNFTsStaked = staking.numLootStakedByEpoch(1);
+        uint256 expectedReward = staking.getRewardPerEpochPerBag(rewardPerEpoch, lootWeight, numNFTsStaked) * num * 2;
+        assertEq(agld.balanceOf(address(this)), expectedReward);
+        assertEq(staking.getClaimableEpochsForLootBag(1).length, 0);
+        assertEq(staking.getClaimableRewardsForLootBag(1), 0);
     }
 }
