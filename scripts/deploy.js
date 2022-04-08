@@ -128,12 +128,29 @@ const initializeStaking = async (stakingAddr) => {
   );
 };
 
+const testStaking = async (stakingAddr) => {
+  const staking = new ethers.Contract(
+    stakingAddr,
+    LootStakingArtifact.abi,
+    wallet
+  );
+  const epoch = await staking.getCurrentEpoch();
+  console.log("epoch", epoch);
+
+  const rewardForEpoch = await staking.getTotalRewardPerEpoch();
+  console.log("rewardForEpoch", rewardForEpoch);
+
+  const rewardForBag = await staking.getClaimableRewardsForLootBag(1);
+  console.log("rewardForBag", rewardForBag);
+};
+
 const main = async () => {
   // const loot = await deployLoot();
   // const mLoot = await deployMLoot();
   // const agld = await deployAGLD();
-  const staking = await deployStaking();
-  await initializeStaking(staking.address);
+  // const staking = await deployStaking();
+  // await initializeStaking(staking.address);
+  await testStaking("0xB497C28f659e48dC6D0A7A9b46553594F7f2C052");
   // await initializeStaking("0x3380B98Da3Ca8515994BB3A279d60C554F11dD17");
 };
 
