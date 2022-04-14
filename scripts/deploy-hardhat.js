@@ -30,6 +30,7 @@ const deployStaking = async () => {
 };
 
 const initializeStaking = async (stakingAddr) => {
+  const AGLD_AMOUNT = 100000;
   const staking = new hre.ethers.Contract(
     stakingAddr,
     LootStakingArtifact.abi,
@@ -42,16 +43,23 @@ const initializeStaking = async (stakingAddr) => {
   );
 
   // send AGLD
-  await agld.transfer(stakingAddr, hre.ethers.utils.parseUnits("100000", 18), {
-    gasLimit: 1000000,
-  });
-  console.log("Sent 100000 AGLD to staking contract");
+  await agld.transfer(
+    stakingAddr,
+    hre.ethers.utils.parseUnits(`${AGLD_AMOUNT}`, 18),
+    {
+      gasLimit: 1000000,
+    }
+  );
+  console.log(`Sent ${AGLD_AMOUNT} AGLD to staking contract`);
 
   // notify AGLD received
-  await staking.notifyRewardAmount(hre.ethers.utils.parseUnits("100000", 18), {
-    gasLimit: 1000000,
-  });
-  console.log("Notified 100000 AGLD reward");
+  await staking.notifyRewardAmount(
+    hre.ethers.utils.parseUnits(`${AGLD_AMOUNT}`, 18),
+    {
+      gasLimit: 1000000,
+    }
+  );
+  console.log(`Notified ${AGLD_AMOUNT} AGLD reward`);
 
   // set staking start
   const startTimeUnixSeconds = parseInt(Date.now() / 1000) + 900;
@@ -75,7 +83,6 @@ async function main() {
 
   const staking = await deployStaking();
   await initializeStaking(staking.address);
-  // const staking = await deployStaking();
   // await initializeStaking("0xCB23cAc357aa3395321cbF90eD0Cf4573a35682A");
 }
 

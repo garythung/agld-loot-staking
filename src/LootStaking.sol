@@ -7,6 +7,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "solmate/utils/SafeTransferLib.sol";
 import {ERC20 as SolmateERC20} from "solmate/tokens/ERC20.sol";
 import {ERC721 as SolmateERC721} from "solmate/tokens/ERC721.sol";
+
 // import "@rari-capital/solmate/src/utils/SafeTransferLib.sol";
 // import {ERC20 as SolmateERC20} from "@rari-capital/solmate/src/tokens/ERC20.sol";
 // import {ERC721 as SolmateERC721} from "@rari-capital/solmate/src/tokens/ERC721.sol";
@@ -33,12 +34,13 @@ contract LootStaking is Ownable {
                              EVENTS
     //////////////////////////////////////////////////////////////*/
 
-    event RewardsAdded(uint256 indexed _rewards);
-    event StakingStarted(uint256 indexed _startTime);
-    event WeightsSet(uint256 indexed _lootWeight, uint256 indexed _mLootWeight);
-    event LootBagsStaked(address indexed _owner, uint256 indexed _epoch, uint256[] indexed _bagIds);
-    event MLootBagsStaked(address indexed _owner, uint256 indexed _epoch, uint256[] indexed _bagIds);
-    event RewardsClaimed(address indexed _owner, uint256 indexed _amount);
+    event RewardsAdded(uint256 _rewards);
+    event StakingStarted(uint256 _startTime);
+    event WeightsSet(uint256 indexed _epoch, uint256 _lootWeight, uint256 _mLootWeight);
+    event LootBagsStaked(address indexed _owner, uint256 indexed _epoch, uint256[] _bagIds);
+    event MLootBagsStaked(address indexed _owner, uint256 indexed _epoch, uint256[] _bagIds);
+    event LootRewardsClaimed(address indexed _owner, uint256 _amount, uint256 indexed _epoch, uint256[] _bagIds);
+    event MLootRewardsClaimed(address indexed _owner, uint256 _amount, uint256 indexed _epoch, uint256[] _bagIds);
 
     /*///////////////////////////////////////////////////////////////
                              CONSTANTS
@@ -95,18 +97,21 @@ contract LootStaking is Ownable {
     /// @param _epochDuration The duration of each epoch in seconds.
     /// @param _lootWeight The initial weight for Loot bags in basis points.
     /// @param _mLootWeight The initial weight for mLoot bags in basis points.
+    /// @param _lootAddress Loot contract address.
+    /// @param _mLootAddress mLoot contract address.
+    /// @param _agldAddress Adventure Gold contract address.
     constructor(
         uint256 _numEpochs,
         uint256 _epochDuration,
         uint256 _lootWeight,
         uint256 _mLootWeight,
-        address lootAddress,
-        address mLootAddress,
-        address agldAddress
+        address _lootAddress,
+        address _mLootAddress,
+        address _agldAddress
     ) {
-        LOOT = SolmateERC721(lootAddress);
-        MLOOT = SolmateERC721(mLootAddress);
-        AGLD = SolmateERC20(agldAddress);
+        LOOT = SolmateERC721(_lootAddress);
+        MLOOT = SolmateERC721(_mLootAddress);
+        AGLD = SolmateERC20(_agldAddress);
         numEpochs = _numEpochs;
         epochDuration = _epochDuration;
 
@@ -151,7 +156,7 @@ contract LootStaking is Ownable {
         lootWeightsByEpoch[_epoch] = _lootWeight;
         mLootWeightsByEpoch[_epoch] = _mLootWeight;
 
-        emit WeightsSet(_lootWeight, _mLootWeight);
+        emit WeightsSet(_epoch, _lootWeight, _mLootWeight);
     }
 
     /// @notice Increase the internal balance of rewards. This should be called
@@ -189,6 +194,7 @@ contract LootStaking is Ownable {
     ///         epoch.
     /// @param _ids NFT token IDs to stake.
     /// @param _nftToken NFT collection being staked.
+    /// @param epochsByNFTId Mapping of up-to-date epochs staked in by token ID.
     /// @param stakedNFTsByEpoch Mapping of staked NFT token IDs by epoch.
     /// @param numNFTsStakedByEpoch Mapping of number of staked NFT token IDs by epoch.
     function _signalStake(
@@ -249,10 +255,16 @@ contract LootStaking is Ownable {
     }
 
     /// @notice Claims the rewards for token IDs of a specific collection.
+    /// @dev    Would have liked to cache more values for looping but ran into
+    ///         stack too deep error.
     /// @param _ids NFT token IDs to claim rewards for.
+    /// @param _nftToken NFT collection being staked.
+    /// @param nftWeights Mapping of NFT reward weights by epoch.
+    /// @param epochsByNFTId Mapping of up-to-date epochs staked in by token ID.
+    /// @param numNFTsStakedByEpoch Mapping of number of staked NFT token IDs by epoch.
     function _claimRewards(
         uint256[] calldata _ids,
-        SolmateERC721 nftToken,
+        SolmateERC721 _nftToken,
         mapping(uint256 => uint256) storage nftWeights,
         mapping(uint256 => uint256[]) storage epochsByNFTId,
         mapping(uint256 => uint256) storage numNFTsStakedByEpoch
@@ -261,28 +273,23 @@ contract LootStaking is Ownable {
         uint256 rewardPerEpoch = getTotalRewardPerEpoch();
         uint256 currentEpoch = getCurrentEpoch();
 
-        uint256 length = _ids.length;
+        uint256 bagId; // cache value
+        uint256[] memory epochs; // cache value
+        uint256 epochsLength; // cache value
 
-        uint256 bagId;
-        uint256[] memory epochs;
-        uint256 epochsLength;
-        uint256 epoch;
-        uint256 j;
-
-        for (uint256 i = 0; i < length;) {
+        for (uint256 i = 0; i < _ids.length;) {
             bagId = _ids[i];
-            if (nftToken.ownerOf(bagId) != msg.sender) revert NotBagOwner();
+            if (_nftToken.ownerOf(bagId) != msg.sender) revert NotBagOwner();
 
             epochs = epochsByNFTId[bagId];
             epochsLength = epochs.length;
 
             if (epochsLength > 0) {
-                for (j = 0; j < epochsLength;) {
-                    epoch = epochs[j];
-                    if (epoch != currentEpoch) {
+                for (uint256 j = 0; j < epochsLength;) {
+                    if (epochs[j] < currentEpoch) {
                         // Proper ERC-20 implementation will cap total supply at uint256 max.
                         unchecked {
-                            rewards += getRewardPerEpochPerBag(rewardPerEpoch, nftWeights[epoch], numNFTsStakedByEpoch[epoch]);
+                            rewards += getRewardPerEpochPerBag(rewardPerEpoch, nftWeights[epochs[j]], numNFTsStakedByEpoch[epochs[j]]);
                         }
                     }
 
@@ -291,7 +298,7 @@ contract LootStaking is Ownable {
 
                 // Clear epochs that the bag's rewards have been claimed for.
                 if (epochs[epochsLength - 1] == currentEpoch) {
-                epochsByNFTId[bagId] = [currentEpoch];
+                    epochsByNFTId[bagId] = [currentEpoch];
                 } else {
                     delete epochsByNFTId[bagId];
                 }
@@ -303,7 +310,11 @@ contract LootStaking is Ownable {
         // Send rewards.
         AGLD.safeTransfer(msg.sender, rewards);
 
-        emit RewardsClaimed(msg.sender, rewards);
+        if (_nftToken == LOOT) {
+            emit LootRewardsClaimed(msg.sender, rewards, currentEpoch, _ids);
+        } else {
+            emit MLootRewardsClaimed(msg.sender, rewards, currentEpoch, _ids);
+        }
     }
 
     /*///////////////////////////////////////////////////////////////
@@ -335,36 +346,22 @@ contract LootStaking is Ownable {
         amount = rewardsAmount / numEpochs;
     }
 
-    /// @notice Returns the currently claimable epochs for a Loot bag.
-    /// @param _id The Loot bag to calculate rewards for.
-    /// @return List of currently claimable epochs.
-    function getClaimableEpochsForLootBag(uint256 _id) public view returns (uint256[] memory) {
-        return _filterOutCurrentEpoch(epochsByLootId[_id]);
-    }
-
-    /// @notice Returns the currently claimable epochs for a mLoot bag.
-    /// @param _id The mLoot bag to calculate rewards for.
-    /// @return List of currently claimable epochs.
-    function getClaimableEpochsForMLootBag(uint256 _id) public view returns (uint256[] memory) {
-        return _filterOutCurrentEpoch(epochsByMLootId[_id]);
-    }
-
     /// @notice Calculates the currently claimable rewards for a Loot bag.
     /// @dev Grab the epochs the bag was staked for and run calculation for each
     ///      epoch.
     /// @param _id The bag to calculate rewards for.
     /// @return rewards Claimable rewards for the bag.
     function getClaimableRewardsForLootBag(uint256 _id) external view returns (uint256 rewards) {
-        rewards = _getClaimableRewardsForEpochs(lootWeightsByEpoch, getClaimableEpochsForLootBag(_id), numLootStakedByEpoch);
+        rewards = _getClaimableRewardsForEpochs(lootWeightsByEpoch, epochsByLootId[_id], numLootStakedByEpoch);
     }
 
     /// @notice Calculates the currently claimable rewards for an mLoot bag.
     /// @dev Grab the epochs the bag was staked for and run calculation for each
     ///      epoch.
     /// @param _id The bag to calculate rewards for.
-    /// @return rewards Claimable rewards for the bag. Already filtered.
+    /// @return rewards Claimable rewards for the bag.
     function getClaimableRewardsForMLootBag(uint256 _id) external view returns (uint256 rewards) {
-        rewards = _getClaimableRewardsForEpochs(mLootWeightsByEpoch, getClaimableEpochsForMLootBag(_id), numMLootStakedByEpoch);
+        rewards = _getClaimableRewardsForEpochs(mLootWeightsByEpoch, epochsByMLootId[_id], numMLootStakedByEpoch);
     }
 
     /// @notice Gets the total rewards expected for Loot and mLoot for an epoch.
@@ -395,42 +392,28 @@ contract LootStaking is Ownable {
                              PRIVATE GETTERS
     //////////////////////////////////////////////////////////////*/
 
-    /// @notice Returns a list of epochs with the current epoch filtered out.
-    /// @param _epochs List of epochs.
-    /// @return List of epochs excluding the  current epoch.
-    function _filterOutCurrentEpoch(uint256[] memory _epochs) internal view returns (uint256[] memory) {
-        uint256 epochsLength = _epochs.length;
-        if (epochsLength == 0) {
-            return _epochs;
-        }
-
-        uint256 currentEpoch = getCurrentEpoch();
-        if (_epochs[epochsLength - 1] == currentEpoch) {
-            delete _epochs[epochsLength - 1];
-        }
-
-        return _epochs;
-    }
-
     /// @notice Calculates the currently claimable rewards for a bag that was
-    ///         staked in a list of epochs. Excludes the current epoch.
-    /// @param nftWeights The list of NFT reward weights.
-    /// @param _epochs The epochs the bag was staked in. Already filtered.
+    ///         staked in a list of epochs. Only returns for valid epochs.
+    /// @param nftWeights Mapping of NFT reward weights by epoch.
+    /// @param _epochs The epochs the bag was staked in.
     /// @param numNFTsStakedByEpoch The number of NFTs staked in each epoch.
     function _getClaimableRewardsForEpochs(
         mapping(uint256 => uint256) storage nftWeights,
         uint256[] memory _epochs,
         mapping(uint256 => uint256) storage numNFTsStakedByEpoch
     ) internal view returns (uint256 rewards) {
+        uint256 currentEpoch = getCurrentEpoch();
         uint256 rewardPerEpoch = getTotalRewardPerEpoch();
         uint256 epochsLength = _epochs.length;
         uint256 epoch;
         for (uint256 i = 0; i < epochsLength;) {
             epoch = _epochs[i];
 
-            // Proper ERC-20 implementation will cap total supply at uint256 max.
-            unchecked {
-                rewards += getRewardPerEpochPerBag(rewardPerEpoch, nftWeights[epoch], numNFTsStakedByEpoch[epoch]);
+            if (epoch < currentEpoch) {
+                // Proper ERC-20 implementation will cap total supply at uint256 max.
+                unchecked {
+                    rewards += getRewardPerEpochPerBag(rewardPerEpoch, nftWeights[epoch], numNFTsStakedByEpoch[epoch]);
+                }
             }
 
             unchecked { ++i; }
