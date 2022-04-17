@@ -1,6 +1,5 @@
+require("dotenv").config();
 const hre = require("hardhat");
-const dotenv = require("dotenv");
-dotenv.config();
 
 const AGLDArtifact = require("../out/AdventureGold.sol/AdventureGold.json");
 const MLootArtifact = require("../out/MLoot.sol/TemporalLoot.json");
@@ -11,6 +10,16 @@ const DEPLOYMENTS = require("../deployments.json");
 
 const provider = new hre.ethers.providers.JsonRpcProvider(process.env.RPC_URL);
 const wallet = new hre.ethers.Wallet(process.env.PRIVATE_KEY, provider);
+
+const getStakingContract = (address) =>
+  new hre.ethers.Contract(address, LootStakingArtifact.abi, wallet);
+
+const AGLD = new hre.ethers.Contract(
+  "0xf02b847FF664072c0241AA8dB32998Bbc51Bd984",
+  AGLDArtifact.abi,
+  wallet
+);
+const AGLD_AMOUNT = 100000;
 
 const deployStaking = async () => {
   const LootStaking = await hre.ethers.getContractFactory("LootStaking");
@@ -29,21 +38,8 @@ const deployStaking = async () => {
   return staking;
 };
 
-const initializeStaking = async (stakingAddr) => {
-  const AGLD_AMOUNT = 100000;
-  const staking = new hre.ethers.Contract(
-    stakingAddr,
-    LootStakingArtifact.abi,
-    wallet
-  );
-  const agld = new hre.ethers.Contract(
-    "0xf02b847FF664072c0241AA8dB32998Bbc51Bd984",
-    AGLDArtifact.abi,
-    wallet
-  );
-
-  // send AGLD
-  await agld.transfer(
+const sendAGLD = async (stakingAddr) => {
+  await AGLD.transfer(
     stakingAddr,
     hre.ethers.utils.parseUnits(`${AGLD_AMOUNT}`, 18),
     {
@@ -51,8 +47,11 @@ const initializeStaking = async (stakingAddr) => {
     }
   );
   console.log(`Sent ${AGLD_AMOUNT} AGLD to staking contract`);
+};
 
-  // notify AGLD received
+const notifyAGLD = async (stakingAddr) => {
+  const staking = getStakingContract(stakingAddr);
+
   await staking.notifyRewardAmount(
     hre.ethers.utils.parseUnits(`${AGLD_AMOUNT}`, 18),
     {
@@ -60,8 +59,11 @@ const initializeStaking = async (stakingAddr) => {
     }
   );
   console.log(`Notified ${AGLD_AMOUNT} AGLD reward`);
+};
 
-  // set staking start
+const setStartTime = async (stakingAddr) => {
+  const staking = getStakingContract(stakingAddr);
+
   const startTimeUnixSeconds = parseInt(Date.now() / 1000) + 900;
   await staking.setStakingStartTime(startTimeUnixSeconds, {
     gasLimit: 1000000,
@@ -82,7 +84,9 @@ async function main() {
   // await hre.run('compile');
 
   const staking = await deployStaking();
-  await initializeStaking(staking.address);
+  await sendAGLD(staking.address);
+  await notifyAGLD(staking.address);
+  await setStartTime(staking.address);
   // await initializeStaking("0xCB23cAc357aa3395321cbF90eD0Cf4573a35682A");
 }
 
